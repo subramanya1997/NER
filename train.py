@@ -88,7 +88,7 @@ def train(args, train_loader, tokenizer, model, optimizer, lr_scheduler, loss_fn
     return train_loss / len(train_loader.dataset), train_acc / len(train_loader.dataset)
 
 def val(args, val_loader, tokenizer, model, loss_fn, epoch=1):
-    print("-------------train-------------")
+    print("-------------evaluate-------------")
     model.eval()
     val_loss = 0
     val_acc = 0
