@@ -1,0 +1,22 @@
+#dataset
+datafile: Entity_data_final.csv
+save_dir: data
+force_rewrite: False
+
+#split 
+train_spilt: 0.7
+val_split: 0.15
+test_split: 0.15
+
+#train
+batch_size: 64
+epochs: 50
+
+#model
+model_name: roberta-base
+lr: 0.00001
+wd: 0.00001
+lr_drop_step: 50
+
+#results
+save_result_dir: save
