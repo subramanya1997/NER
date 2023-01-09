@@ -1,5 +1,8 @@
 **/__pycache__/
 logs/
-save/
 data/
 *.csv
+.DS_Store
+**/.DS_Store
+**/*.pkl
+**/*.pth
