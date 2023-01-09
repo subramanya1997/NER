@@ -1,6 +1,6 @@
 #!/bin/sh
 #SBATCH --job-name=dylog
-#SBATCH -o /work/snagabhushan_umass_edu/dylog/logs/train_%j.txt
+#SBATCH -o /work/pi_hzhang2_umass_edu/snagabhushan_umass_edu/NER/logs/logs.txt
 #SBATCH --time=10:00:00
 #SBATCH -c 1 # Cores
 #SBATCH --mem=128GB  # Requested Memory
@@ -9,13 +9,10 @@
 #SBATCH -G 1  # Number of GPUs
 eval "$(command conda 'shell.bash' 'hook' 2> /dev/null)"
 
-module load cuda/11.7.0
-
+module load cuda/11.6.0
 
 conda activate py39
 
-cd /work/snagabhushan_umass_edu/dylog
-# python infer.py -p fix_infer -w orig --load-path /work/shantanuagar_umass_edu/ego4d/model/nlq/meme_long_6_last.pth >sbatch/out/fix_infer.txt
-# python train.py -w orig >sbatch/out/fix_infer.txt
+cd /work/pi_hzhang2_umass_edu/snagabhushan_umass_edu/NER
 
-python train.py > logs/train_orig_%j.txt
+python train.py > logs/train_orig.txt

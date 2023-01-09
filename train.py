@@ -5,7 +5,7 @@ import yaml
 import argparse
 from tqdm import tqdm
 
-from utils.dataloader import readCVS, entityDataset, get_dataloader
+from utils.dataloader import readjson, entityDataset, get_dataloader
 from torch.utils.data import random_split
 from torch import optim
 from transformers import  RobertaTokenizer, RobertaForTokenClassification
@@ -44,7 +44,7 @@ def createModel(args):
     model = RobertaForTokenClassification.from_pretrained(args.model_name, num_labels=len(args.class_names)).to(args.device)
     optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.wd)
     lr_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=args.lr_drop_step)
-    loss_fn = CrossEntropyLoss()
+    loss_fn = CrossEntropyLoss(ignore_index=-100)
     print("-------------end create model-------------")
     return tokenizer, model, optimizer, lr_scheduler, loss_fn
 
@@ -71,21 +71,21 @@ def train(args, train_loader, tokenizer, model, optimizer, lr_scheduler, loss_fn
         # forward
         logits = model(**data).logits
         # loss
-        bloss = 0
-        for logit, target, mask in zip(logits, targets, _mask):
-            _logit = logit[mask]
-            _target = target[mask]
-            bloss += loss_fn(_logit, _target)
-            train_acc += (_logit.argmax(-1) == _target).sum().item()
-        bloss.backward()
+        bloss = loss_fn(logits.view(-1, len(args.class_names)), targets.view(-1))
+        train_acc += ((logits.argmax(-1) == targets) * _mask).sum().item() / _mask.view(-1).sum().item()
         train_loss += bloss.item()
-
+        # backward
         optimizer.zero_grad()
+        bloss.backward()
         optimizer.step()
         lr_scheduler.step()
+
+        if batch_idx % 100 == 0:
+            print(f"Epoch: {epoch}, Batch: {batch_idx}, Loss: {bloss.item():.4f}")
+            print(f"Train acc: {train_acc / (batch_idx + 1):.4f}")
         
     print("-------------end train-------------")
-    return train_loss / len(train_loader.dataset), train_acc / len(train_loader.dataset)
+    return train_loss / len(train_loader), train_acc / len(train_loader)
 
 def val(args, val_loader, tokenizer, model, loss_fn, epoch=1):
     print("-------------evaluate-------------")
@@ -102,15 +102,16 @@ def val(args, val_loader, tokenizer, model, loss_fn, epoch=1):
         # forward
         logits = model(**data).logits
         # loss
-        bloss = 0
-        for logit, target, mask in zip(logits, targets, _mask):
-            _logit = logit[mask]
-            _target = target[mask]
-            bloss += loss_fn(_logit, _target)
-            val_acc += (_logit.argmax(-1) == _target).sum().item()
+        bloss = loss_fn(logits.view(-1, len(args.class_names)), targets.view(-1))
+        val_acc += ((logits.argmax(-1) == targets) * _mask).sum().item() / _mask.view(-1).sum().item()
         val_loss += bloss.item()
+
+        if batch_idx % 100 == 0:
+            print(f"Epoch: {epoch}, Batch: {batch_idx}, Loss: {bloss.item():.4f}")
+            print(f"Val acc: {val_acc / (batch_idx + 1):.4f}")
+
     print("-------------end val-------------")
-    return val_loss / len(val_loader.dataset), val_acc / len(val_loader.dataset)
+    return val_loss / len(val_loader), val_acc / len(val_loader)
 
 def train_and_val(args, train_loader, val_loader, tokenizer, model, optimizer, lr_scheduler, loss_fn):
     print("-------------train and val-------------")
@@ -127,9 +128,13 @@ def train_and_val(args, train_loader, val_loader, tokenizer, model, optimizer, l
             _path = os.path.join(args.save_result_dir, f"{args.model_name}_{epoch}_{val_acc:.4f}.pth")
             torch.save(model.state_dict(), _path)
 
+    print("-------------end train and val-------------")
+    return best_acc
+    
+
 if __name__ == "__main__":
     args = parse_arguments()
-    data, labels, class_names = readCVS(args)
+    data, labels, class_names = readjson(args)
     args.class_names = class_names
     dataset = entityDataset(data, labels, class_names)
     train_size, val_size = int(args.train_spilt*len(dataset)), int(args.val_split*len(dataset))
@@ -137,5 +142,6 @@ if __name__ == "__main__":
     train_dataset, val_dataset, test_dataset = random_split(dataset, [train_size, val_size, test_size])  
     train_loader, val_loader, test_loader = get_dataloader(args, train_dataset, val_dataset, test_dataset)
     tokenizer, model, optimizer, lr_scheduler, loss_fn = createModel(args)
-    train_loss, train_acc = train_and_val(args, train_loader, val_loader, tokenizer, model, optimizer, lr_scheduler, loss_fn)
+    best_acc = train_and_val(args, train_loader, val_loader, tokenizer, model, optimizer, lr_scheduler, loss_fn)
+    print(f"Best acc: {best_acc:.4f}")
 

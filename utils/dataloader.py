@@ -11,6 +11,7 @@ from utils.datautils import load_pickle, save_pickle
 
 import torch
 from torch.utils.data import Dataset, DataLoader
+from transformers import RobertaTokenizer
 
 def readCVS(args, save=True):
 
@@ -19,6 +20,7 @@ def readCVS(args, save=True):
         os.makedirs(args.save_dir)
 
     _path = os.path.join(args.save_dir, "data.pkl")
+    print(f"Save Path {_path}")
     if os.path.exists(args.save_dir + "/data.pkl") and not args.force_rewrite:
         _data_loaded = load_pickle(_path)
         print("-------------end read data-------------")
@@ -58,6 +60,61 @@ def readCVS(args, save=True):
     
     return _data, _labels, _class_names
 
+def readjson(args, save=True):
+
+    print("-------------read data-------------")
+    if not os.path.exists(args.save_dir):
+        os.makedirs(args.save_dir)
+
+    _path = os.path.join(args.save_dir, f"data_{args.model_name}.pkl")
+    print(f"Data Path {_path}")
+    if os.path.exists(_path) and not args.force_rewrite:
+        _data_loaded = load_pickle(_path)
+        print("-------------end read data-------------")
+        return _data_loaded["data"], _data_loaded["labels"], _data_loaded["class_names"]
+    
+    tokenizer = RobertaTokenizer.from_pretrained(args.model_name)
+
+    with open(args.datafile, "r") as f:
+        dataJSON = json.load(f)
+    print("-------------end read data-------------")
+    print("-------------process data-------------")
+    _class_names = dataJSON["meta"]["categories"]
+    _class_names = dict(zip(_class_names, range(0, len(_class_names))))
+    _data = []
+    _labels = []
+    for idx, data in tqdm(enumerate(dataJSON["data"]), total=len(dataJSON["data"])):
+        text = data['Text'].strip()
+        tokenizered_text = tokenizer(text, padding=True, truncation=True, return_tensors="pt").input_ids[0]
+        text_list = [_class_names["None"]] * tokenizered_text.shape[0]
+        for _c_name, _phrases in data.items():
+            if _c_name == 'Text':
+                continue
+            for _words in _phrases:
+                _words = _words.strip()
+                _words_withspace = f" {_words}"
+                tokenizered_words_withoutspace = tokenizer(_words, padding=True, truncation=True, return_tensors="pt").input_ids[0][1:-1]
+                tokenizered_words_withspace = tokenizer(_words_withspace, padding=True, truncation=True, return_tensors="pt").input_ids[0][1:-1]
+                temp_text_withoutspace = tokenizered_text.unfold(0, tokenizered_words_withoutspace.shape[0], 1)
+                temp_text_withspace = tokenizered_text.unfold(0, tokenizered_words_withspace.shape[0], 1)
+                idx_1 = (temp_text_withoutspace[:, None] == tokenizered_words_withoutspace).all(-1).any(-1).nonzero().flatten()
+                idx_2 = (temp_text_withspace[:, None] == tokenizered_words_withspace).all(-1).any(-1).nonzero().flatten()
+                if idx_1.shape[0] == 1:
+                    for i in range(idx_1[0], idx_1[0]+tokenizered_words_withoutspace.shape[0]):
+                        text_list[i] = _class_names[_c_name]
+                elif idx_2.shape[0] == 1:
+                    for i in range(idx_2[0], idx_2[0]+tokenizered_words_withspace.shape[0]):
+                        text_list[i] = _class_names[_c_name]
+            _data.append(text)
+            _labels.append(text_list)
+    print("-------------end process data-------------")
+
+    if save:
+        _data_to_save = {"data": _data, "labels": _labels, "class_names": _class_names}
+        save_pickle(_data_to_save, _path)
+    
+    return _data, _labels, _class_names
+
 class entityDataset(Dataset):
     def __init__(self, data, labels, class_names):
         print("-------------creating dataset-------------")
@@ -76,7 +133,7 @@ def collate_fn(batch):
     max_len = max(_tlen)
     sequence_padded = []
     for _label in _labels:
-        _label_padded = _label + [0] * (max_len - len(_label))
+        _label_padded = _label + [-100] * (max_len - len(_label))
         sequence_padded.append(torch.tensor(_label_padded))
     return _data, torch.stack(sequence_padded), torch.tensor(_tlen)
 

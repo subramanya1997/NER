@@ -1,6 +1,6 @@
 #dataset
-datafile: Entity_data_final.csv
-save_dir: data
+datafile: data/Entity_data_final.json
+save_dir: save
 force_rewrite: False
 
 #split 
@@ -9,8 +9,8 @@ val_split: 0.15
 test_split: 0.15
 
 #train
-batch_size: 48
-epochs: 50
+batch_size: 1
+epochs: 5
 
 #model
 model_name: roberta-base
