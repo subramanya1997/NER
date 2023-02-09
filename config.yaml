@@ -1,21 +1,23 @@
 #dataset
-datafile: data/Entity_data_final.json
+train_datafile: data/train_data.json
+test_datafile: data/test_data.json
 save_dir: save
 force_rewrite: False
 
-#split 
-train_spilt: 0.7
-val_split: 0.15
-test_split: 0.15
+#split
+val_split: 0.1
+test_split: 0.9
 
 #train
-batch_size: 1
-epochs: 5
+batch_size: 8
+epochs: 1000
+train_both: False
+train_intent: True
 
 #model
 model_name: roberta-base
-lr: 0.0001
-wd: 0.0001
+lr: 1e-6
+wd: 1e-8
 lr_drop_step: 50
 
 #results

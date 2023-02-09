@@ -6,6 +6,7 @@ import json
 import re
 import string
 import pickle
+import random
 
 from utils.datautils import load_pickle, save_pickle
 
@@ -60,35 +61,50 @@ def readCVS(args, save=True):
     
     return _data, _labels, _class_names
 
-def readjson(args, save=True):
+def readjson(args, split="train", save=True):
 
     print("-------------read data-------------")
     if not os.path.exists(args.save_dir):
         os.makedirs(args.save_dir)
 
-    _path = os.path.join(args.save_dir, f"data_{args.model_name}.pkl")
+    _path = os.path.join(args.save_dir, f"data_{args.model_name}_{split}.pkl")
     print(f"Data Path {_path}")
     if os.path.exists(_path) and not args.force_rewrite:
         _data_loaded = load_pickle(_path)
         print("-------------end read data-------------")
-        return _data_loaded["data"], _data_loaded["labels"], _data_loaded["class_names"]
+        if True:
+            _indexs = random.choices(range(len(_data_loaded["data"])-205), k=6)
+            _indexs.extend(range(len(_data_loaded["data"])-205, len(_data_loaded["data"])))
+            _data_loaded["data"] = [_data_loaded["data"][i] for i in _indexs]
+            _data_loaded["labels"] = [_data_loaded["labels"][i] for i in _indexs]
+            _data_loaded["intent"] = [_data_loaded["intent"][i] for i in _indexs]
+            return _data_loaded["data"], _data_loaded["labels"], _data_loaded["intent"],  _data_loaded["class_names"], _data_loaded["intent_names"]
+        return _data_loaded["data"], _data_loaded["labels"], _data_loaded["intent"],  _data_loaded["class_names"], _data_loaded["intent_names"]
     
     tokenizer = RobertaTokenizer.from_pretrained(args.model_name)
-
-    with open(args.datafile, "r") as f:
-        dataJSON = json.load(f)
+    if split == "train":
+        with open(args.train_datafile, "r") as f:
+            dataJSON = json.load(f)
+    elif split == "test":
+        with open(args.test_datafile, "r") as f:
+            dataJSON = json.load(f)
     print("-------------end read data-------------")
     print("-------------process data-------------")
-    _class_names = dataJSON["meta"]["categories"]
+    _class_names = dataJSON["categories"]
     _class_names = dict(zip(_class_names, range(0, len(_class_names))))
+    _intent_names = dataJSON["intents"]
+    _intent_names = dict(zip(_intent_names, range(0, len(_intent_names))))
     _data = []
     _labels = []
+    _intent = []
     for idx, data in tqdm(enumerate(dataJSON["data"]), total=len(dataJSON["data"])):
         text = data['Text'].strip()
         tokenizered_text = tokenizer(text, padding=True, truncation=True, return_tensors="pt").input_ids[0]
         text_list = [_class_names["None"]] * tokenizered_text.shape[0]
+        intent_list = [0.0] * len(_intent_names)
+        intent_list[_intent_names[data['Intent']]] = 1.0
         for _c_name, _phrases in data.items():
-            if _c_name == 'Text':
+            if _c_name == 'Text' or _c_name == 'Intent':
                 continue
             for _words in _phrases:
                 _words = _words.strip()
@@ -105,37 +121,39 @@ def readjson(args, save=True):
                 elif idx_2.shape[0] == 1:
                     for i in range(idx_2[0], idx_2[0]+tokenizered_words_withspace.shape[0]):
                         text_list[i] = _class_names[_c_name]
-            _data.append(text)
-            _labels.append(text_list)
-    print("-------------end process data-------------")
+        _data.append(text)
+        _labels.append(text_list)
+        _intent.append(intent_list)
 
+    print("-------------end process data-------------")
     if save:
-        _data_to_save = {"data": _data, "labels": _labels, "class_names": _class_names}
+        _data_to_save = {"data": _data, "labels": _labels, "intent": _intent, "class_names": _class_names, "intent_names": _intent_names}
         save_pickle(_data_to_save, _path)
-    
-    return _data, _labels, _class_names
+    return _data, _labels, _intent, _class_names, _intent_names
 
 class entityDataset(Dataset):
-    def __init__(self, data, labels, class_names):
+    def __init__(self, data, labels, intents, class_names, intent_names):
         print("-------------creating dataset-------------")
         self.data = data
         self.labels = labels
+        self.intents = intents
         self.class_names = class_names
+        self.intent_names = intent_names
         self.len = len(data)
         print("-------------end dataset-------------")
     def __getitem__(self, index):
-        return self.data[index], self.labels[index], len(self.labels[index])
+        return self.data[index], self.labels[index], len(self.labels[index]), self.intents[index]
     def __len__(self):
         return self.len
 
 def collate_fn(batch):
-    _data, _labels, _tlen = zip(*batch)
+    _data, _labels, _tlen, _intent = zip(*batch)
     max_len = max(_tlen)
     sequence_padded = []
     for _label in _labels:
         _label_padded = _label + [-100] * (max_len - len(_label))
         sequence_padded.append(torch.tensor(_label_padded))
-    return _data, torch.stack(sequence_padded), torch.tensor(_tlen)
+    return _data, torch.stack(sequence_padded), torch.tensor(_tlen), torch.tensor(list(_intent))
 
 def get_dataloader(args, train_dataset, val_dataset=None, test_dataset=None):
     train_loader, val_loader, test_loader = None, None, None
